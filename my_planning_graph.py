@@ -307,6 +307,21 @@ class PlanningGraph():
         #   to see if a proposed PgNode_a has prenodes that are a subset of the previous S level.  Once an
         #   action node is added, it MUST be connected to the S node instances in the appropriate s_level set.
 
+        self.a_levels.append(set())
+        for action in self.all_actions:
+            node_a = PgNode_a(action)
+            #if all(node_s in self.s_levels[level] for node_s in node_a.prenodes):
+            # check if subset
+            if node_a.prenodes <= self.s_levels[level]:
+                # the action can be added!
+                # connect the literal node and action node
+                for node_s in self.s_levels[level]:
+                    if node_s in node_a.prenodes:
+                        node_s.children.add(node_a)
+                        node_a.parents.add(node_s)
+
+                self.a_levels[level].add(node_a)
+
     def add_literal_level(self, level):
         """ add an S (literal) level to the Planning Graph
 
@@ -324,6 +339,15 @@ class PlanningGraph():
         #   may be "added" to the set without fear of duplication.  However, it is important to then correctly create and connect
         #   all of the new S nodes as children of all the A nodes that could produce them, and likewise add the A nodes to the
         #   parent sets of the S nodes
+        self.s_levels.append(set())
+
+        # find the action nodes in the previous level and add the effect states
+        for node_a in self.a_levels[level - 1]:
+            for node_s in node_a.effnodes:
+                new_node_s = PgNode_s(node_s.symbol, node_s.is_pos)
+                new_node_s.parents.add(node_a)
+                node_a.children.add(new_node_s)
+                self.s_levels[level].add(new_node_s)
 
     def update_a_mutex(self, nodeset):
         """ Determine and update sibling mutual exclusion for A-level nodes
@@ -382,7 +406,15 @@ class PlanningGraph():
         :return: bool
         """
         # TODO test for Inconsistent Effects between nodes
-        return False
+        effects_a1_pos = node_a1.action.effect_add
+        effects_a1_neg = node_a1.action.effect_rem
+        effects_a2_pos = node_a2.action.effect_add
+        effects_a2_neg = node_a2.action.effect_rem
+
+        a2_negates_a1 = any(clause in effects_a1_pos for clause in effects_a2_neg)
+        a1_negates_a2 = any(clause in effects_a2_pos for clause in effects_a1_neg)
+
+        return a2_negates_a1 or a1_negates_a2
 
     def interference_mutex(self, node_a1: PgNode_a, node_a2: PgNode_a) -> bool:
         """
@@ -399,7 +431,23 @@ class PlanningGraph():
         :return: bool
         """
         # TODO test for Interference between nodes
-        return False
+        effects_a1_pos = node_a1.action.effect_add
+        effects_a1_neg = node_a1.action.effect_rem
+        effects_a2_pos = node_a2.action.effect_add
+        effects_a2_neg = node_a2.action.effect_rem
+
+        preconds_a1_pos = node_a1.action.precond_pos
+        preconds_a1_neg = node_a1.action.precond_neg
+        preconds_a2_pos = node_a2.action.precond_pos
+        preconds_a2_neg = node_a2.action.precond_neg
+
+        a2_interfere_a1 = (any(clause in preconds_a1_pos for clause in effects_a2_neg)
+            or any(clause in preconds_a1_neg for clause in effects_a2_pos))
+
+        a1_interfere_a2 = (any(clause in preconds_a2_pos for clause in effects_a1_neg)
+            or any(clause in preconds_a2_neg for clause in effects_a1_pos))
+
+        return a2_interfere_a1 or a1_interfere_a2
 
     def competing_needs_mutex(self, node_a1: PgNode_a, node_a2: PgNode_a) -> bool:
         """
